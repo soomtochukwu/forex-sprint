@@ -13,6 +13,9 @@ const robotoMono = Roboto_Mono({
 export const metadata: Metadata = {
   title: 'Forex Sprint | MiniPay',
   description: 'Gamified DEX Arbitrage on Celo',
+  other: {
+    'talentapp:project_verification': '8928f8ff1b1549b41f927f02d3b01e45f6fd41d2a873c2d0dea85bcb1b629b378ceea8bd39f5c4262354d01882b868d31f3e97b2fde53f131b990724d7a3cfaf',
+  },
 };
 
 export default function RootLayout({
