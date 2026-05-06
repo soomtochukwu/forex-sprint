@@ -18,59 +18,48 @@ const config = {
       },
     },
     extend: {
+      fontFamily: {
+        mono: ['var(--font-roboto-mono)'],
+      },
       colors: {
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
+        border: "#333333",
+        input: "#1A1A1A",
+        ring: "#00FF00",
+        background: "#0A0A0A",
+        foreground: "#E5E5E5",
         primary: {
-          DEFAULT: "#07955F",
-          foreground: "#FFFFFF",
+          DEFAULT: "#00FF00", // Terminal Green
+          foreground: "#000000",
         },
         secondary: {
-          DEFAULT: "#2A2C34",
-          foreground: "#FFFFFF",
+          DEFAULT: "#1A1A1A",
+          foreground: "#E5E5E5",
         },
         destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
+          DEFAULT: "#FF0000",
+          foreground: "#000000",
         },
         muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
+          DEFAULT: "#1A1A1A",
+          foreground: "#888888",
         },
         accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
+          DEFAULT: "#8B5CF6", // Electric Purple
+          foreground: "#FFFFFF",
         },
         popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
+          DEFAULT: "#0A0A0A",
+          foreground: "#E5E5E5",
         },
         card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
+          DEFAULT: "#111111",
+          foreground: "#E5E5E5",
         },
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
-      },
-      keyframes: {
-        "accordion-down": {
-          from: { height: "0" },
-          to: { height: "var(--radix-accordion-content-height)" },
-        },
-        "accordion-up": {
-          from: { height: "var(--radix-accordion-content-height)" },
-          to: { height: "0" },
-        },
-      },
-      animation: {
-        "accordion-down": "accordion-down 0.2s ease-out",
-        "accordion-up": "accordion-up 0.2s ease-out",
+        lg: "0px", // 1px solid borders, no rounding for terminal aesthetic
+        md: "0px",
+        sm: "0px",
       },
     },
   },

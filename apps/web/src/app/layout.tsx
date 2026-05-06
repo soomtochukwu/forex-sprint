@@ -1,15 +1,18 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Roboto_Mono } from 'next/font/google';
 import './globals.css';
 
 import { Navbar } from '@/components/navbar';
 import { WalletProvider } from "@/components/wallet-provider"
 
-const inter = Inter({ subsets: ['latin'] });
+const robotoMono = Roboto_Mono({ 
+  subsets: ['latin'],
+  variable: '--font-roboto-mono',
+});
 
 export const metadata: Metadata = {
-  title: 'forex-sprint',
-  description: 'A new Celo blockchain project',
+  title: 'Forex Sprint | MiniPay',
+  description: 'Gamified DEX Arbitrage on Celo',
 };
 
 export default function RootLayout({
@@ -18,9 +21,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
-        {/* Navbar is included on all pages */}
+    <html lang="en" className="dark">
+      <body className={`${robotoMono.variable} font-mono antialiased`}>
         <div className="relative flex min-h-screen flex-col">
           <WalletProvider>
             <Navbar />
