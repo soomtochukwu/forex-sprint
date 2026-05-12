@@ -24,6 +24,17 @@ contract ArbitrageExecutor {
         }
 
         uint256 balance = IERC20(returnToken).balanceOf(address(this));
-        require(IERC20(returnToken).transfer(vault, balance), "Return transfer failed");
+        if (balance > 0) {
+            require(IERC20(returnToken).transfer(vault, balance), "Return transfer failed");
+        }
+    }
+
+    // In case other tokens are left over
+    function recoverToken(address token) external {
+        require(msg.sender == vault, "Only vault");
+        uint256 balance = IERC20(token).balanceOf(address(this));
+        if (balance > 0) {
+            IERC20(token).transfer(vault, balance);
+        }
     }
 }

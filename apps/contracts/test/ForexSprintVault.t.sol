@@ -39,7 +39,7 @@ contract ForexSprintVaultTest is Test {
         vm.startPrank(user);
         IERC20(USDM).approve(address(vault), type(uint256).max);
         vault.deposit(USDM, 100 ether);
-        vault.configureBot(USDM, 1, true); // 0.01% min profit
+        vault.configureBot(USDM, 1, true, "Sonic", 1); // 0.01% min profit, name, avatar
         vm.stopPrank();
     }
 

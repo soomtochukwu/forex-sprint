@@ -7,6 +7,13 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 contract ForexSprintVault is Initializable, OwnableUpgradeable, UUPSUpgradeable {
+    struct BotMetadata {
+        string name;
+        uint8 avatarId;
+        uint256 totalTrades;
+        uint256 totalProfit;
+    }
+
     struct BotConfig {
         uint256 minProfitBps; // 100 = 1%
         bool isActive;
@@ -18,6 +25,9 @@ contract ForexSprintVault is Initializable, OwnableUpgradeable, UUPSUpgradeable 
     // user => token => config
     mapping(address => mapping(address => BotConfig)) public botConfigs;
 
+    // user => token => metadata
+    mapping(address => mapping(address => BotMetadata)) public botMetadata;
+
     uint256 public protocolFeeBps;
 
     // token => protocol accumulated fees
@@ -28,7 +38,7 @@ contract ForexSprintVault is Initializable, OwnableUpgradeable, UUPSUpgradeable 
 
     event Deposited(address indexed user, address indexed token, uint256 amount);
     event Withdrawn(address indexed user, address indexed token, uint256 amount);
-    event BotConfigured(address indexed user, address indexed token, uint256 minProfitBps, bool isActive);
+    event BotConfigured(address indexed user, address indexed token, uint256 minProfitBps, bool isActive, string name, uint8 avatarId);
     event ArbitrageExecuted(address indexed user, address indexed token, uint256 profit);
 
     modifier onlySolver() {
@@ -68,13 +78,18 @@ contract ForexSprintVault is Initializable, OwnableUpgradeable, UUPSUpgradeable 
         emit Withdrawn(msg.sender, token, amount);
     }
 
-    function configureBot(address token, uint256 minProfitBps, bool isActive) external {
+    function configureBot(address token, uint256 minProfitBps, bool isActive, string calldata name, uint8 avatarId) external {
         require(minProfitBps <= 10000, "Invalid bps");
         botConfigs[msg.sender][token] = BotConfig({
             minProfitBps: minProfitBps,
             isActive: isActive
         });
-        emit BotConfigured(msg.sender, token, minProfitBps, isActive);
+        
+        BotMetadata storage meta = botMetadata[msg.sender][token];
+        meta.name = name;
+        meta.avatarId = avatarId;
+
+        emit BotConfigured(msg.sender, token, minProfitBps, isActive, name, avatarId);
     }
 
     function executeArbitrage(
@@ -83,7 +98,7 @@ contract ForexSprintVault is Initializable, OwnableUpgradeable, UUPSUpgradeable 
         uint256 amountToUse,
         address executor,
         bytes calldata executorData
-    ) external onlySolver {
+    ) public onlySolver {
         BotConfig memory config = botConfigs[user][token];
         require(config.isActive, "Bot not active");
         require(balances[user][token] >= amountToUse, "Insufficient user balance");
@@ -110,7 +125,25 @@ contract ForexSprintVault is Initializable, OwnableUpgradeable, UUPSUpgradeable 
         balances[user][token] += userProfit;
         protocolFees[token] += fee;
 
+        // Update metadata
+        BotMetadata storage meta = botMetadata[user][token];
+        meta.totalTrades += 1;
+        meta.totalProfit += userProfit;
+
         emit ArbitrageExecuted(user, token, totalProfit);
+    }
+
+    function batchExecuteArbitrage(
+        address[] calldata users,
+        address[] calldata tokens,
+        uint256[] calldata amounts,
+        address executor,
+        bytes[] calldata executorDatas
+    ) external onlySolver {
+        require(users.length == tokens.length && tokens.length == amounts.length && amounts.length == executorDatas.length, "Length mismatch");
+        for (uint i = 0; i < users.length; i++) {
+            executeArbitrage(users[i], tokens[i], amounts[i], executor, executorDatas[i]);
+        }
     }
 
     function withdrawProtocolFees(address token) external onlyOwner {

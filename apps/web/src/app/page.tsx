@@ -1,12 +1,45 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Terminal, Play, Square, Activity, Database, Crosshair } from "lucide-react";
-import { useAccount } from "wagmi";
+import { Terminal, Activity, Database, Crosshair, Trophy } from "lucide-react";
+import { useAccount, useReadContract, useWriteContract, useWatchContractEvent } from "wagmi";
+import { formatUnits, parseUnits } from "viem";
+import { VAULT_ADDRESS, USDM_ADDRESS } from "@/lib/constants";
+import { VAULT_ABI } from "@/lib/abis";
+import { BotTrack } from "@/components/bot-track";
+import { BotCreationModal } from "@/components/bot-creation-modal";
 
 export default function Home() {
   const { address } = useAccount();
-  const [botActive, setBotActive] = useState(false);
+  const { writeContract } = useWriteContract();
+
+  // 1. Read User Balance in Vault
+  const { data: vaultBalance, refetch: refetchBalance } = useReadContract({
+    address: VAULT_ADDRESS,
+    abi: VAULT_ABI,
+    functionName: "balances",
+    args: [address!, USDM_ADDRESS],
+    query: { enabled: !!address }
+  });
+
+  // 2. Read Bot Config
+  const { data: botConfig } = useReadContract({
+    address: VAULT_ADDRESS,
+    abi: VAULT_ABI,
+    functionName: "botConfigs",
+    args: [address!, USDM_ADDRESS],
+    query: { enabled: !!address }
+  });
+
+  // 3. Read Bot Metadata
+  const { data: botMetadata, refetch: refetchMeta } = useReadContract({
+    address: VAULT_ADDRESS,
+    abi: VAULT_ABI,
+    functionName: "botMetadata",
+    args: [address!, USDM_ADDRESS],
+    query: { enabled: !!address }
+  });
+
   const [logs, setLogs] = useState<string[]>([
     "[SYSTEM] Initializing Forex Sprint engine...",
     "[SYSTEM] Connected to Celo Mainnet.",
@@ -14,24 +47,54 @@ export default function Home() {
     "[READY] Waiting for user deployment.",
   ]);
 
-  const handleDeploy = () => {
-    setBotActive(true);
+  // Watch for execution events
+  useWatchContractEvent({
+    address: VAULT_ADDRESS,
+    abi: VAULT_ABI,
+    eventName: "ArbitrageExecuted",
+    onLogs(logs) {
+      const myLog = logs.find(l => (l as any).args.user === address);
+      if (myLog) {
+        const profit = formatUnits((myLog as any).args.profit, 18);
+        setLogs(prev => [...prev, `[EXEC] PROFIT REALIZED: +${profit} USDm`]);
+        refetchBalance();
+        refetchMeta();
+      }
+    },
+  });
+
+  const handleDeploy = (name: string, avatarId: number, capital: string) => {
     setLogs((prev) => [
       ...prev,
-      `[EXEC] Deploying Agent Bot to 0x...${address?.slice(-4) || "0000"}`,
+      `[EXEC] Deploying Agent Bot "${name}"...`,
       `[INFO] Target spread: > 0.01%`,
-      `[INFO] Scanning mempool for arbitrage routes...`,
+      `[INFO] Capital: ${capital} USDm`,
     ]);
+
+    // Note: In real app, need to check allowance first
+    writeContract({
+      address: VAULT_ADDRESS,
+      abi: VAULT_ABI,
+      functionName: "configureBot",
+      args: [USDM_ADDRESS, 1n, true, name, avatarId],
+    });
   };
 
-  const handleStop = () => {
-    setBotActive(false);
-    setLogs((prev) => [
-      ...prev,
-      `[EXEC] Halting Agent Bot.`,
-      `[SYSTEM] Bot retired safely. Funds secured in vault.`,
-    ]);
-  };
+  const isActive = botConfig ? (botConfig as any)[1] : false;
+  const currentProfit = botMetadata ? formatUnits((botMetadata as any)[3], 18) : "0.00";
+  const totalTrades = botMetadata ? (botMetadata as any)[2].toString() : "0";
+
+  // Mock track data based on real bot
+  const activeBots = botMetadata && isActive ? [
+    {
+      id: "my-bot",
+      name: (botMetadata as any)[0],
+      avatarId: (botMetadata as any)[1],
+      profit: currentProfit,
+      isActive: true,
+      progress: 65, // mock progress
+    }
+  ] : [];
 
   return (
     <main className="flex-1 p-4 md:p-8 max-w-6xl mx-auto w-full">
@@ -60,90 +123,16 @@ export default function Home() {
 
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Controls */}
-        <div className="lg:col-span-1 flex flex-col gap-6">
-          <div className="border border-border bg-[#0A0A0A] p-4 relative">
+        {/* Left Column - Controls & Track */}
+        <div className="lg:col-span-2 flex flex-col gap-6">
+          <BotTrack bots={activeBots} />
+
+          <div className="border border-border bg-[#0A0A0A] p-4 relative h-full">
             <div className="absolute top-0 left-0 bg-border px-2 py-1 text-[10px] uppercase font-bold text-foreground">
-              Deployment_Config
-            </div>
-            <div className="mt-6 space-y-4">
-              <div>
-                <label className="text-xs text-muted-foreground uppercase mb-1 block">Allocated Capital (USDm)</label>
-                <div className="flex items-center border border-border bg-input p-2">
-                  <span className="text-primary mr-2">~%</span>
-                  <input 
-                    type="number" 
-                    defaultValue="10.00"
-                    className="bg-transparent outline-none w-full text-foreground placeholder:text-muted-foreground"
-                  />
-                </div>
-              </div>
-              
-              <div>
-                <label className="text-xs text-muted-foreground uppercase mb-1 block">Min Spread Threshold</label>
-                <div className="flex items-center border border-border bg-input p-2">
-                  <span className="text-primary mr-2">~%</span>
-                  <input 
-                    type="text" 
-                    defaultValue="> 0.01%"
-                    className="bg-transparent outline-none w-full text-foreground placeholder:text-muted-foreground"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-4">
-                {!botActive ? (
-                  <button 
-                    onClick={handleDeploy}
-                    className="w-full border border-primary bg-primary/10 hover:bg-primary/20 text-primary py-3 flex items-center justify-center gap-2 transition-colors uppercase text-sm font-bold tracking-widest"
-                  >
-                    <Play className="h-4 w-4" />
-                    Execute_Deploy
-                  </button>
-                ) : (
-                  <button 
-                    onClick={handleStop}
-                    className="w-full border border-destructive bg-destructive/10 hover:bg-destructive/20 text-destructive py-3 flex items-center justify-center gap-2 transition-colors uppercase text-sm font-bold tracking-widest"
-                  >
-                    <Square className="h-4 w-4" />
-                    Halt_Process
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Stats Card */}
-          <div className="border border-border bg-[#0A0A0A] p-4 relative">
-            <div className="absolute top-0 left-0 bg-border px-2 py-1 text-[10px] uppercase font-bold text-foreground">
-              Live_Metrics
-            </div>
-            <div className="mt-6 space-y-3">
-              <div className="flex justify-between items-center border-b border-border pb-2">
-                <span className="text-xs text-muted-foreground flex items-center gap-2"><Activity className="h-3 w-3" /> Trades_Exec</span>
-                <span className="text-sm font-bold">{botActive ? "42" : "0"}</span>
-              </div>
-              <div className="flex justify-between items-center border-b border-border pb-2">
-                <span className="text-xs text-muted-foreground flex items-center gap-2"><Database className="h-3 w-3" /> Total_Profit</span>
-                <span className="text-sm font-bold text-primary">{botActive ? "+ 1.42 USDm" : "0.00 USDm"}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-muted-foreground flex items-center gap-2"><Crosshair className="h-3 w-3" /> Win_Rate</span>
-                <span className="text-sm font-bold">100%</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column - Terminal Log */}
-        <div className="lg:col-span-2">
-          <div className="border border-border bg-[#0A0A0A] h-full relative flex flex-col min-h-[400px]">
-            <div className="absolute top-0 left-0 bg-border px-2 py-1 text-[10px] uppercase font-bold text-foreground z-10 flex w-full justify-between items-center">
-              <span>StdOut // Arbitrage_Log</span>
-              <span className="text-muted-foreground">TCP:443</span>
+              StdOut // Arbitrage_Log
             </div>
             
-            <div className="mt-8 p-4 flex-1 overflow-y-auto space-y-2 font-mono text-sm">
+            <div className="mt-8 p-4 flex-1 overflow-y-auto space-y-2 font-mono text-xs max-h-[250px]">
               {logs.map((log, i) => (
                 <div key={i} className={`
                   ${log.includes("[SYSTEM]") ? "text-muted-foreground" : ""}
@@ -154,13 +143,62 @@ export default function Home() {
                   {log}
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column - Stats & Deployment */}
+        <div className="lg:col-span-1 flex flex-col gap-6">
+          <div className="border border-border bg-[#0A0A0A] p-4 relative">
+            <div className="absolute top-0 left-0 bg-border px-2 py-1 text-[10px] uppercase font-bold text-foreground">
+              Bot_Control_Center
+            </div>
+            <div className="mt-6 space-y-4">
+              <BotCreationModal onDeploy={handleDeploy} />
               
-              {botActive && (
-                <div className="flex items-center gap-2 text-primary animate-pulse mt-4">
-                  <Terminal className="h-4 w-4" />
-                  <span>Scanning liquidity pools...</span>
+              <div className="pt-4 space-y-3">
+                <div className="flex justify-between items-center border-b border-border pb-2">
+                  <span className="text-xs text-muted-foreground flex items-center gap-2"><Activity className="h-3 w-3" /> Trades_Exec</span>
+                  <span className="text-sm font-bold font-mono">{totalTrades}</span>
                 </div>
-              )}
+                <div className="flex justify-between items-center border-b border-border pb-2">
+                  <span className="text-xs text-muted-foreground flex items-center gap-2"><Database className="h-3 w-3" /> Net_Profit</span>
+                  <span className="text-sm font-bold text-primary font-mono">+{currentProfit} USDm</span>
+                </div>
+                <div className="flex justify-between items-center border-b border-border pb-2">
+                  <span className="text-xs text-muted-foreground flex items-center gap-2"><Crosshair className="h-3 w-3" /> Vault_Balance</span>
+                  <span className="text-sm font-bold font-mono">
+                    {vaultBalance ? formatUnits(vaultBalance as bigint, 18) : "0.00"} USDm
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Leaderboard */}
+          <div className="border border-border bg-[#0A0A0A] p-4 relative">
+            <div className="absolute top-0 left-0 bg-border px-2 py-1 text-[10px] uppercase font-bold text-foreground">
+              Global_Leaderboard
+            </div>
+            <div className="mt-6 space-y-4">
+              {[
+                { rank: 1, name: "Whale_Bot", profit: "420.69" },
+                { rank: 2, name: "Sonic_1", profit: "123.45" },
+                { rank: 3, name: "Stable_Gains", profit: "88.20" },
+              ].map((entry) => (
+                <div key={entry.rank} className="flex justify-between items-center text-xs">
+                  <span className="flex items-center gap-2 font-mono">
+                    <span className="text-muted-foreground">#{entry.rank}</span>
+                    {entry.name}
+                  </span>
+                  <span className="text-primary font-bold">+{entry.profit}</span>
+                </div>
+              ))}
+              <div className="pt-2 border-t border-border flex justify-center">
+                 <button className="text-[10px] text-muted-foreground uppercase hover:text-primary transition-colors flex items-center gap-1">
+                   <Trophy className="h-3 w-3" /> View_All_Rankings
+                 </button>
+              </div>
             </div>
           </div>
         </div>

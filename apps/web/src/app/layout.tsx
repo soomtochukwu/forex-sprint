@@ -1,9 +1,12 @@
 import type { Metadata } from 'next';
-import { Roboto_Mono } from 'next/font/google';
+import { Roboto_Mono, Inter } from 'next/font/google';
 import './globals.css';
 
 import { Navbar } from '@/components/navbar';
 import { WalletProvider } from "@/components/wallet-provider"
+import { cn } from "@/lib/utils";
+
+const inter = Inter({subsets:['latin'],variable:'--font-sans'});
 
 const robotoMono = Roboto_Mono({ 
   subsets: ['latin'],
@@ -24,7 +27,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className={cn("dark", "font-sans", inter.variable)}>
       <body className={`${robotoMono.variable} font-mono antialiased`}>
         <div className="relative flex min-h-screen flex-col">
           <WalletProvider>
