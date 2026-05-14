@@ -2,6 +2,7 @@ import { parseAbi } from "viem";
 
 export const VAULT_ABI = parseAbi([
   "function deposit(address token, uint256 amount) external",
+  "function depositCELO() external payable",
   "function withdraw(address token, uint256 amount) external",
   "function configureBot(address token, uint256 minProfitBps, bool isActive, string name, uint8 avatarId) external",
   "function balances(address user, address token) external view returns (uint256)",

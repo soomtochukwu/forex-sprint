@@ -19,6 +19,9 @@ contract ForexSprintVault is Initializable, OwnableUpgradeable, UUPSUpgradeable 
         bool isActive;
     }
 
+    // Sentinel for native CELO
+    address public constant NATIVE_CELO = address(0);
+
     // user => token => balance
     mapping(address => mapping(address => uint256)) public balances;
     
@@ -65,16 +68,37 @@ contract ForexSprintVault is Initializable, OwnableUpgradeable, UUPSUpgradeable 
     }
 
     function deposit(address token, uint256 amount) external {
+        require(token != NATIVE_CELO, "Use depositCELO");
         require(amount > 0, "Amount must be > 0");
         require(IERC20(token).transferFrom(msg.sender, address(this), amount), "Transfer failed");
         balances[msg.sender][token] += amount;
         emit Deposited(msg.sender, token, amount);
     }
 
+    function depositCELO() external payable {
+        require(msg.value > 0, "Amount must be > 0");
+        balances[msg.sender][NATIVE_CELO] += msg.value;
+        emit Deposited(msg.sender, NATIVE_CELO, msg.value);
+    }
+
+    receive() external payable {
+        if (msg.value > 0) {
+            balances[msg.sender][NATIVE_CELO] += msg.value;
+            emit Deposited(msg.sender, NATIVE_CELO, msg.value);
+        }
+    }
+
     function withdraw(address token, uint256 amount) external {
         require(balances[msg.sender][token] >= amount, "Insufficient balance");
         balances[msg.sender][token] -= amount;
-        require(IERC20(token).transfer(msg.sender, amount), "Transfer failed");
+        
+        if (token == NATIVE_CELO) {
+            (bool success, ) = payable(msg.sender).call{value: amount}("");
+            require(success, "CELO withdrawal failed");
+        } else {
+            require(IERC20(token).transfer(msg.sender, amount), "Transfer failed");
+        }
+        
         emit Withdrawn(msg.sender, token, amount);
     }
 
@@ -103,16 +127,27 @@ contract ForexSprintVault is Initializable, OwnableUpgradeable, UUPSUpgradeable 
         require(config.isActive, "Bot not active");
         require(balances[user][token] >= amountToUse, "Insufficient user balance");
 
-        uint256 balanceBefore = IERC20(token).balanceOf(address(this));
-        
-        // Transfer funds to executor
-        require(IERC20(token).transfer(executor, amountToUse), "Transfer to executor failed");
+        uint256 balanceBefore;
+        if (token == NATIVE_CELO) {
+            balanceBefore = address(this).balance;
+            // Transfer funds to executor as value
+            (bool success, ) = executor.call{value: amountToUse}(executorData);
+            require(success, "Executor CELO call failed");
+        } else {
+            balanceBefore = IERC20(token).balanceOf(address(this));
+            // Transfer funds to executor
+            require(IERC20(token).transfer(executor, amountToUse), "Transfer to executor failed");
+            // Call executor
+            (bool success, ) = executor.call(executorData);
+            require(success, "Executor call failed");
+        }
 
-        // Call executor
-        (bool success, ) = executor.call(executorData);
-        require(success, "Executor call failed");
-
-        uint256 balanceAfter = IERC20(token).balanceOf(address(this));
+        uint256 balanceAfter;
+        if (token == NATIVE_CELO) {
+            balanceAfter = address(this).balance;
+        } else {
+            balanceAfter = IERC20(token).balanceOf(address(this));
+        }
         
         // Calculate expected minimum balance
         uint256 minProfit = (amountToUse * config.minProfitBps) / 10000;
