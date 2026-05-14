@@ -4,7 +4,8 @@ import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Rocket, Zap, Shield, Play } from "lucide-react";
+import { Rocket, Zap, Shield, Play, Coins } from "lucide-react";
+import { USDM_ADDRESS, NATIVE_CELO } from "@/lib/constants";
 
 const AVATARS = [
   { icon: Rocket, label: "Speedy" },
@@ -12,10 +13,16 @@ const AVATARS = [
   { icon: Shield, label: "Steady" },
 ];
 
-export function BotCreationModal({ onDeploy }: { onDeploy: (name: string, avatarId: number, capital: string) => void }) {
+const TOKENS = [
+  { symbol: "USDm", address: USDM_ADDRESS },
+  { symbol: "CELO", address: NATIVE_CELO },
+];
+
+export function BotCreationModal({ onDeploy }: { onDeploy: (name: string, avatarId: number, capital: string, token: string) => void }) {
   const [name, setName] = useState("Agent_01");
   const [avatarId, setAvatarId] = useState(0);
   const [capital, setCapital] = useState("10.00");
+  const [selectedToken, setSelectedToken] = useState(TOKENS[0].address);
   const [open, setOpen] = useState(false);
 
   return (
@@ -31,6 +38,23 @@ export function BotCreationModal({ onDeploy }: { onDeploy: (name: string, avatar
           <DialogTitle className="text-xl font-bold uppercase tracking-widest text-primary">Deploy_Agent_Bot</DialogTitle>
         </DialogHeader>
         <div className="grid gap-6 py-4">
+          <div className="grid gap-2">
+            <Label className="text-xs uppercase text-muted-foreground">Select Asset</Label>
+            <div className="flex gap-2">
+              {TOKENS.map((token) => (
+                <button
+                  key={token.symbol}
+                  onClick={() => setSelectedToken(token.address)}
+                  className={`flex-1 py-2 border transition-all flex items-center justify-center gap-2 ${
+                    selectedToken === token.address ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"
+                  }`}
+                >
+                  <Coins className="h-3 w-3" />
+                  <span className="text-[10px] uppercase font-bold">{token.symbol}</span>
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="grid gap-2">
             <Label htmlFor="name" className="text-xs uppercase text-muted-foreground">Bot Name</Label>
             <input
@@ -76,7 +100,7 @@ export function BotCreationModal({ onDeploy }: { onDeploy: (name: string, avatar
         </div>
         <Button 
           onClick={() => {
-            onDeploy(name, avatarId, capital);
+            onDeploy(name, avatarId, capital, selectedToken);
             setOpen(false);
           }}
           className="w-full bg-primary text-primary-foreground font-bold uppercase tracking-widest py-6"

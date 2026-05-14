@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Terminal, Activity, Database, Crosshair, Trophy } from "lucide-react";
 import { useAccount, useReadContract, useWriteContract, useWatchContractEvent } from "wagmi";
 import { formatUnits, parseUnits } from "viem";
-import { VAULT_ADDRESS, USDM_ADDRESS } from "@/lib/constants";
+import { VAULT_ADDRESS, USDM_ADDRESS, NATIVE_CELO } from "@/lib/constants";
 import { VAULT_ABI } from "@/lib/abis";
 import { BotTrack } from "@/components/bot-track";
 import { BotCreationModal } from "@/components/bot-creation-modal";
@@ -13,8 +13,10 @@ export default function Home() {
   const { address } = useAccount();
   const { writeContract } = useWriteContract();
 
-  // 1. Read User Balance in Vault
-  const { data: vaultBalance, refetch: refetchBalance } = useReadContract({
+  const [activeAsset, setActiveAsset] = useState<string>(USDM_ADDRESS);
+
+  // 1. Read User Balances
+  const { data: usdmBalance, refetch: refetchUsdm } = useReadContract({
     address: VAULT_ADDRESS,
     abi: VAULT_ABI,
     functionName: "balances",
@@ -22,21 +24,28 @@ export default function Home() {
     query: { enabled: !!address }
   });
 
-  // 2. Read Bot Config
+  const { data: celoBalance, refetch: refetchCelo } = useReadContract({
+    address: VAULT_ADDRESS,
+    abi: VAULT_ABI,
+    functionName: "balances",
+    args: [address!, NATIVE_CELO],
+    query: { enabled: !!address }
+  });
+
+  // 2. Read Bot Config & Meta for Active Asset
   const { data: botConfig } = useReadContract({
     address: VAULT_ADDRESS,
     abi: VAULT_ABI,
     functionName: "botConfigs",
-    args: [address!, USDM_ADDRESS],
+    args: [address!, activeAsset as `0x${string}`],
     query: { enabled: !!address }
   });
 
-  // 3. Read Bot Metadata
   const { data: botMetadata, refetch: refetchMeta } = useReadContract({
     address: VAULT_ADDRESS,
     abi: VAULT_ABI,
     functionName: "botMetadata",
-    args: [address!, USDM_ADDRESS],
+    args: [address!, activeAsset as `0x${string}`],
     query: { enabled: !!address }
   });
 
@@ -55,34 +64,49 @@ export default function Home() {
     onLogs(logs) {
       const myLog = logs.find(l => (l as any).args.user === address);
       if (myLog) {
+        const token = (myLog as any).args.token;
         const profit = formatUnits((myLog as any).args.profit, 18);
-        setLogs(prev => [...prev, `[EXEC] PROFIT REALIZED: +${profit} USDm`]);
-        refetchBalance();
+        const symbol = token === NATIVE_CELO ? "CELO" : "USDm";
+        setLogs(prev => [...prev, `[EXEC] ${symbol} PROFIT REALIZED: +${profit} ${symbol}`]);
+        refetchUsdm();
+        refetchCelo();
         refetchMeta();
       }
     },
   });
 
-  const handleDeploy = (name: string, avatarId: number, capital: string) => {
+  const handleDeploy = (name: string, avatarId: number, capital: string, token: string) => {
+    const symbol = token === NATIVE_CELO ? "CELO" : "USDm";
     setLogs((prev) => [
       ...prev,
-      `[EXEC] Deploying Agent Bot "${name}"...`,
-      `[INFO] Target spread: > 0.01%`,
-      `[INFO] Capital: ${capital} USDm`,
+      `[EXEC] Deploying ${symbol} Agent Bot "${name}"...`,
+      `[INFO] Capital: ${capital} ${symbol}`,
     ]);
 
-    // Note: In real app, need to check allowance first
-    writeContract({
-      address: VAULT_ADDRESS,
-      abi: VAULT_ABI,
-      functionName: "configureBot",
-      args: [USDM_ADDRESS, 1n, true, name, avatarId],
-    });
+    setActiveAsset(token);
+
+    if (token === NATIVE_CELO) {
+      writeContract({
+        address: VAULT_ADDRESS,
+        abi: VAULT_ABI,
+        functionName: "depositCELO",
+        value: parseUnits(capital, 18),
+      });
+    } else {
+      // Note: In real app, need to check allowance first
+      writeContract({
+        address: VAULT_ADDRESS,
+        abi: VAULT_ABI,
+        functionName: "configureBot",
+        args: [token as `0x${string}`, 1n, true, name, avatarId],
+      });
+    }
   };
 
   const isActive = botConfig ? (botConfig as any)[1] : false;
   const currentProfit = botMetadata ? formatUnits((botMetadata as any)[3], 18) : "0.00";
   const totalTrades = botMetadata ? (botMetadata as any)[2].toString() : "0";
+  const activeSymbol = activeAsset === NATIVE_CELO ? "CELO" : "USDm";
 
   // Mock track data based on real bot
   const activeBots = botMetadata && isActive ? [
@@ -92,7 +116,7 @@ export default function Home() {
       avatarId: (botMetadata as any)[1],
       profit: currentProfit,
       isActive: true,
-      progress: 65, // mock progress
+      progress: 65,
     }
   ] : [];
 
@@ -109,14 +133,18 @@ export default function Home() {
             Automated Cross-DEX Arbitrage Engine
           </p>
         </div>
-        <div className="text-right">
-          <div className="text-xs text-muted-foreground uppercase tracking-widest mb-1">Status</div>
-          <div className="text-sm flex items-center gap-2">
-            <span className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-primary"></span>
-            </span>
-            <span className="text-primary font-bold">SYSTEM_ONLINE</span>
+        <div className="flex gap-4 text-right">
+          <div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-widest">USDm Balance</div>
+            <div className="text-sm font-bold font-mono text-primary">
+              {usdmBalance ? formatUnits(usdmBalance as bigint, 18) : "0.00"}
+            </div>
+          </div>
+          <div className="border-l border-border pl-4">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-widest">CELO Balance</div>
+            <div className="text-sm font-bold font-mono text-primary">
+              {celoBalance ? formatUnits(celoBalance as bigint, 18) : "0.00"}
+            </div>
           </div>
         </div>
       </header>
@@ -125,6 +153,21 @@ export default function Home() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Controls & Track */}
         <div className="lg:col-span-2 flex flex-col gap-6">
+          <div className="flex gap-2">
+            <button 
+              onClick={() => setActiveAsset(USDM_ADDRESS)}
+              className={`px-4 py-1 text-[10px] uppercase font-bold border transition-colors ${activeAsset === USDM_ADDRESS ? "bg-primary text-black border-primary" : "text-muted-foreground border-border hover:border-primary/50"}`}
+            >
+              USDm_View
+            </button>
+            <button 
+              onClick={() => setActiveAsset(NATIVE_CELO)}
+              className={`px-4 py-1 text-[10px] uppercase font-bold border transition-colors ${activeAsset === NATIVE_CELO ? "bg-primary text-black border-primary" : "text-muted-foreground border-border hover:border-primary/50"}`}
+            >
+              CELO_View
+            </button>
+          </div>
+          
           <BotTrack bots={activeBots} />
 
           <div className="border border-border bg-[#0A0A0A] p-4 relative h-full">
@@ -163,12 +206,15 @@ export default function Home() {
                 </div>
                 <div className="flex justify-between items-center border-b border-border pb-2">
                   <span className="text-xs text-muted-foreground flex items-center gap-2"><Database className="h-3 w-3" /> Net_Profit</span>
-                  <span className="text-sm font-bold text-primary font-mono">+{currentProfit} USDm</span>
+                  <span className="text-sm font-bold text-primary font-mono">+{currentProfit} {activeSymbol}</span>
                 </div>
                 <div className="flex justify-between items-center border-b border-border pb-2">
                   <span className="text-xs text-muted-foreground flex items-center gap-2"><Crosshair className="h-3 w-3" /> Vault_Balance</span>
                   <span className="text-sm font-bold font-mono">
-                    {vaultBalance ? formatUnits(vaultBalance as bigint, 18) : "0.00"} USDm
+                    {activeAsset === NATIVE_CELO 
+                      ? (celoBalance ? formatUnits(celoBalance as bigint, 18) : "0.00")
+                      : (usdmBalance ? formatUnits(usdmBalance as bigint, 18) : "0.00")
+                    } {activeSymbol}
                   </span>
                 </div>
               </div>
