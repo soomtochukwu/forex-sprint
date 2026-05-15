@@ -68,99 +68,144 @@ async function main() {
   console.log(`> CONNECTED AS: ${account.address}`);
   
   // For MVP, we'll monitor a specific set of users or a registry
-  // In a real app, you'd scan events to find all active bots
   const ACTIVE_USERS: `0x${string}`[] = []; 
 
-  setInterval(async () => {
+  console.log("> COMMENCING SCAN LOOP...");
+
+  const runScan = async () => {
+    console.log("[TICK] Starting DEX scan...");
     try {
       const STABLE_TRADE_SIZE = parseUnits("100", 18);
       const CELO_TRADE_SIZE = parseUnits("10", 18);
 
       // --- SCAN 1: USDm -> USDC (Uni -> Ube) ---
-      // (Keep existing stable scan logic...)
+      console.log("   -> Scanning USDm/USDC...");
+      let usdmToUsdcUni = 0n;
+      let selectedStableFee = 0;
+      for (const fee of [100, 500, 3000]) {
+        try {
+          usdmToUsdcUni = await publicClient.readContract({
+            address: UNISWAP_V3_QUOTER,
+            abi: QUOTER_ABI,
+            functionName: "quoteExactInputSingle",
+            args: [USDM_ADDRESS, USDC_ADDRESS, fee, STABLE_TRADE_SIZE, 0n]
+          }) as bigint;
+          if (usdmToUsdcUni > 0n) {
+            selectedStableFee = fee;
+            break;
+          }
+        } catch (e) {}
+      }
+
+      if (usdmToUsdcUni > 0n) {
+        const usdcToUsdmUbe = await publicClient.readContract({
+          address: UBESWAP_ROUTER,
+          abi: UBE_ROUTER_ABI,
+          functionName: "getAmountsOut",
+          args: [usdmToUsdcUni, [USDC_ADDRESS, USDM_ADDRESS]]
+        }) as bigint[];
+        
+        const stableProfit = usdcToUsdmUbe[1] - STABLE_TRADE_SIZE;
+        console.log(`[SCAN] USDm -> USDC: Profit: ${formatUnits(stableProfit, 18)} USDm (Fee: ${selectedStableFee})`);
+      }
 
       // --- SCAN 2: CELO -> USDm (Uni -> Ube) ---
-      const celoToUsdmUni = await publicClient.readContract({
-        address: UNISWAP_V3_QUOTER,
-        abi: QUOTER_ABI,
-        functionName: "quoteExactInputSingle",
-        args: [CELO_TOKEN_ADDRESS, USDM_ADDRESS, 3000, CELO_TRADE_SIZE, 0n]
-      });
+      console.log("   -> Scanning CELO/USDm...");
+      let celoToUsdmUni = 0n;
+      let selectedCeloFee = 0;
+      for (const fee of [500, 3000, 10000]) {
+        try {
+          celoToUsdmUni = await publicClient.readContract({
+            address: UNISWAP_V3_QUOTER,
+            abi: QUOTER_ABI,
+            functionName: "quoteExactInputSingle",
+            args: [CELO_TOKEN_ADDRESS, USDM_ADDRESS, fee, CELO_TRADE_SIZE, 0n]
+          }) as bigint;
+          if (celoToUsdmUni > 0n) {
+            selectedCeloFee = fee;
+            break;
+          }
+        } catch (e) {}
+      }
 
-      const usdmToCeloUbe = await publicClient.readContract({
-        address: UBESWAP_ROUTER,
-        abi: UBE_ROUTER_ABI,
-        functionName: "getAmountsOut",
-        args: [celoToUsdmUni, [USDM_ADDRESS, CELO_TOKEN_ADDRESS]]
-      });
+      if (celoToUsdmUni > 0n) {
+        const usdmToCeloUbeArr = await publicClient.readContract({
+          address: UBESWAP_ROUTER,
+          abi: UBE_ROUTER_ABI,
+          functionName: "getAmountsOut",
+          args: [celoToUsdmUni, [USDM_ADDRESS, CELO_TOKEN_ADDRESS]]
+        }) as bigint[];
 
-      const celoProfit = usdmToCeloUbe[1] - CELO_TRADE_SIZE;
-      console.log(`[SCAN] CELO -> USDm: In: 10 CELO | Out: ${formatUnits(usdmToCeloUbe[1], 18)} CELO`);
+        const celoProfit = usdmToCeloUbeArr[1] - CELO_TRADE_SIZE;
+        console.log(`[SCAN] CELO -> USDm: Profit: ${formatUnits(celoProfit, 18)} CELO (Fee: ${selectedCeloFee})`);
 
-      if (celoProfit > 0n) {
-        for (const user of ACTIVE_USERS) {
-          const [minProfitBps, isActive] = await publicClient.readContract({
-            address: VAULT_PROXY_ADDRESS,
-            abi: VAULT_ABI,
-            functionName: "botConfigs",
-            args: [user, NATIVE_CELO]
-          }) as [bigint, boolean];
+        if (celoProfit > 0n) {
+          for (const user of ACTIVE_USERS) {
+            const [minProfitBps, isActive] = await publicClient.readContract({
+              address: VAULT_PROXY_ADDRESS,
+              abi: VAULT_ABI,
+              functionName: "botConfigs",
+              args: [user, NATIVE_CELO]
+            }) as [bigint, boolean];
 
-          if (isActive) {
-             // Construct native swap payload
-             // Note: In UniV3 Celo, native CELO *is* the ERC20 address 0x471...
-             // So we can still use exactInputSingle with CELO_TOKEN_ADDRESS
-             
-             const swapUni = encodeFunctionData({
-                abi: UNI_ROUTER_ABI,
-                functionName: "exactInputSingle",
-                args: [{
-                  tokenIn: CELO_TOKEN_ADDRESS,
-                  tokenOut: USDM_ADDRESS,
-                  fee: 3000,
-                  recipient: EXECUTOR_ADDRESS,
-                  deadline: BigInt(Math.floor(Date.now() / 1000) + 60),
-                  amountIn: CELO_TRADE_SIZE,
-                  amountOutMinimum: 0n,
-                  sqrtPriceLimitX96: 0n
-                }]
-              });
+            if (isActive) {
+               console.log(`[EXEC] Attempting for user ${user}...`);
+               const swapUni = encodeFunctionData({
+                  abi: UNI_ROUTER_ABI,
+                  functionName: "exactInputSingle",
+                  args: [{
+                    tokenIn: CELO_TOKEN_ADDRESS,
+                    tokenOut: USDM_ADDRESS,
+                    fee: selectedCeloFee,
+                    recipient: EXECUTOR_ADDRESS,
+                    deadline: BigInt(Math.floor(Date.now() / 1000) + 60),
+                    amountIn: CELO_TRADE_SIZE,
+                    amountOutMinimum: 0n,
+                    sqrtPriceLimitX96: 0n
+                  }]
+                });
 
-              const swapUbe = encodeFunctionData({
-                abi: UBE_ROUTER_ABI,
-                functionName: "swapExactTokensForTokens",
-                args: [
-                  celoToUsdmUni,
-                  0n,
-                  [USDM_ADDRESS, CELO_TOKEN_ADDRESS],
-                  EXECUTOR_ADDRESS,
-                  BigInt(Math.floor(Date.now() / 1000) + 60)
-                ]
-              });
+                const swapUbe = encodeFunctionData({
+                  abi: UBE_ROUTER_ABI,
+                  functionName: "swapExactTokensForTokens",
+                  args: [
+                    celoToUsdmUni,
+                    0n,
+                    [USDM_ADDRESS, CELO_TOKEN_ADDRESS],
+                    EXECUTOR_ADDRESS,
+                    BigInt(Math.floor(Date.now() / 1000) + 60)
+                  ]
+                });
 
-              const executorPayload = encodeFunctionData({
-                abi: EXECUTOR_ABI,
-                functionName: "execute",
-                args: [
-                  [UNISWAP_V3_ROUTER, UBESWAP_ROUTER],
-                  [swapUni, swapUbe],
-                  NATIVE_CELO
-                ]
-              });
+                const executorPayload = encodeFunctionData({
+                  abi: EXECUTOR_ABI,
+                  functionName: "execute",
+                  args: [
+                    [UNISWAP_V3_ROUTER, UBESWAP_ROUTER],
+                    [swapUni, swapUbe],
+                    NATIVE_CELO
+                  ]
+                });
 
-              await walletClient.writeContract({
-                address: VAULT_PROXY_ADDRESS,
-                abi: VAULT_ABI,
-                functionName: "executeArbitrage",
-                args: [user, NATIVE_CELO, CELO_TRADE_SIZE, EXECUTOR_ADDRESS, executorPayload]
-              });
+                const hash = await walletClient.writeContract({
+                  address: VAULT_PROXY_ADDRESS,
+                  abi: VAULT_ABI,
+                  functionName: "executeArbitrage",
+                  args: [user, NATIVE_CELO, CELO_TRADE_SIZE, EXECUTOR_ADDRESS, executorPayload]
+                });
+                console.log(`[SUCCESS] Tx Hash: ${hash}`);
+            }
           }
         }
       }
     } catch (error) {
-      console.error(`[ERROR] Poll/Exec failed:`, error);
+      console.error(`[ERROR] Scan failed:`, error);
     }
-  }, 10000);
+    console.log("[TICK] Scan finished. Waiting 10s...");
+    setTimeout(runScan, 10000);
+  };
+
+  runScan();
 }
 
 main().catch(console.error);

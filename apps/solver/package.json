@@ -4,6 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "start": "tsx index.ts",
+    "dev": "tsx --watch index.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -12,5 +14,10 @@
   "dependencies": {
     "dotenv": "^17.4.2",
     "viem": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.8.0",
+    "tsx": "^4.22.0",
+    "typescript": "^5.2.2"
   }
 }
