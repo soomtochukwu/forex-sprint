@@ -1,0 +1,11 @@
+{
+  "ForexSprintVault": {
+    "proxy": "0x8a81Eb65b72F22F493Aa534d5CF223A40b72975c",
+    "implementation": "0x82C16f1768a47C8a664862608Cb4cd30109A4224",
+    "artifact": "ForexSprintVault.json"
+  },
+  "ArbitrageExecutor": {
+    "address": "0x3f438c1de36fBAf3a51612a1Ed829a8AEEDC2D84",
+    "artifact": "ArbitrageExecutor.json"
+  }
+}
