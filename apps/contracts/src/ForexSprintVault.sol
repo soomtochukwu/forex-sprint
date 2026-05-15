@@ -185,6 +185,12 @@ contract ForexSprintVault is Initializable, OwnableUpgradeable, UUPSUpgradeable 
         uint256 amount = protocolFees[token];
         require(amount > 0, "No fees");
         protocolFees[token] = 0;
-        require(IERC20(token).transfer(owner(), amount), "Transfer failed");
+
+        if (token == NATIVE_CELO) {
+            (bool success, ) = payable(owner()).call{value: amount}("");
+            require(success, "CELO fee withdrawal failed");
+        } else {
+            require(IERC20(token).transfer(owner(), amount), "Transfer failed");
+        }
     }
 }
