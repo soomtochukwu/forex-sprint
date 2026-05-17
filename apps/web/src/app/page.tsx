@@ -65,7 +65,14 @@ export default function Home() {
     "[READY] Waiting for user deployment.",
   ]);
 
-  // Watch for execution events
+  const refreshAll = () => {
+    refetchUsdt();
+    refetchCelo();
+    refetchMeta();
+    refetchAllowance();
+  };
+
+  // 1. Watch for Arbitrage Execution
   useWatchContractEvent({
     address: VAULT_ADDRESS,
     abi: VAULT_ABI,
@@ -78,9 +85,33 @@ export default function Home() {
         const profit = formatUnits((myLog as any).args.profit, decimals);
         const symbol = token === NATIVE_CELO ? "CELO" : "USDT";
         setLogs(prev => [...prev, `[EXEC] ${symbol} PROFIT REALIZED: +${profit} ${symbol}`]);
-        refetchUsdt();
-        refetchCelo();
-        refetchMeta();
+        refreshAll();
+      }
+    },
+  });
+
+  // 2. Watch for Bot Configuration / Deployment
+  useWatchContractEvent({
+    address: VAULT_ADDRESS,
+    abi: VAULT_ABI,
+    eventName: "BotConfigured",
+    onLogs(logs) {
+      const myLog = logs.find(l => (l as any).args.user === address);
+      if (myLog) {
+        refreshAll();
+      }
+    },
+  });
+
+  // 3. Watch for Deposits
+  useWatchContractEvent({
+    address: VAULT_ADDRESS,
+    abi: VAULT_ABI,
+    eventName: "Deposited",
+    onLogs(logs) {
+      const myLog = logs.find(l => (l as any).args.user === address);
+      if (myLog) {
+        refreshAll();
       }
     },
   });
