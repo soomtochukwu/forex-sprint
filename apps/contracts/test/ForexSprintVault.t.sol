@@ -11,7 +11,7 @@ contract ForexSprintVaultTest is Test {
     ForexSprintVault vault;
     ArbitrageExecutor executor;
 
-    address constant USDM = 0x765DE816845861e75A25fCA122bb6898B8B1282a;
+    address constant USDT = 0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e;
 
     address user = address(0x1);
     address solver = address(0x2);
@@ -33,18 +33,38 @@ contract ForexSprintVaultTest is Test {
         
         vault.setSolver(solver, true);
 
-        // Fund user with USDm
-        deal(USDM, user, 1000 ether);
+        // Fund user with USDT
+        deal(USDT, user, 1000 * 10**6);
 
         vm.startPrank(user);
-        IERC20(USDM).approve(address(vault), type(uint256).max);
-        vault.deposit(USDM, 100 ether);
-        vault.configureBot(USDM, 1, true, "Sonic", 1); // 0.01% min profit, name, avatar
+        IERC20(USDT).approve(address(vault), type(uint256).max);
+        vault.deposit(USDT, 100 * 10**6);
+        vault.configureBot(USDT, 1, true, "Sonic", 1); // 0.01% min profit, name, avatar
         vm.stopPrank();
     }
 
     function testMockArbitrage() public {
-        // ... (existing test)
+        address[] memory targets = new address[](1);
+        bytes[] memory data = new bytes[](1);
+        
+        targets[0] = address(this);
+        data[0] = abi.encodeWithSignature("mockTrade(address,uint256)", USDT, 10 * 10**6);
+
+        bytes memory executorData = abi.encodeWithSelector(
+            ArbitrageExecutor.execute.selector,
+            targets,
+            data,
+            USDT
+        );
+
+        uint256 userBalanceBefore = vault.balances(user, USDT);
+
+        vm.startPrank(solver);
+        vault.executeArbitrage(user, USDT, 10 * 10**6, address(executor), executorData);
+        vm.stopPrank();
+
+        uint256 userBalanceAfter = vault.balances(user, USDT);
+        assertGt(userBalanceAfter, userBalanceBefore, "User should make profit");
     }
 
     function testNativeCelo() public {
@@ -64,6 +84,6 @@ contract ForexSprintVaultTest is Test {
     // Helper for mock trade
     function mockTrade(address token, uint256 /*amount*/) external {
         // Send extra profit to msg.sender (executor)
-        deal(token, msg.sender, IERC20(token).balanceOf(msg.sender) + 1 ether);
+        deal(token, msg.sender, IERC20(token).balanceOf(msg.sender) + 1 * 10**6);
     }
 }

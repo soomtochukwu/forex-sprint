@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { Shield, Settings, Wallet, UserCheck, AlertTriangle } from "lucide-react";
 import { useAccount, useReadContract, useWriteContract } from "wagmi";
 import { formatUnits } from "viem";
-import { VAULT_ADDRESS, USDM_ADDRESS, NATIVE_CELO } from "@/lib/constants";
+import { VAULT_ADDRESS, USDT_ADDRESS, NATIVE_CELO } from "@/lib/constants";
 import { VAULT_ABI } from "@/lib/abis";
 import { Button } from "@/components/ui/button";
 
@@ -22,11 +22,11 @@ export default function AdminPage() {
   const isOwner = address && owner && address.toLowerCase() === (owner as string).toLowerCase();
 
   // 2. Read Protocol Fees
-  const { data: usdmFees, refetch: refetchUsdmFees } = useReadContract({
+  const { data: usdtFees, refetch: refetchUsdtFees } = useReadContract({
     address: VAULT_ADDRESS,
     abi: VAULT_ABI,
     functionName: "protocolFees",
-    args: [USDM_ADDRESS],
+    args: [USDT_ADDRESS],
   });
 
   const { data: celoFees, refetch: refetchCeloFees } = useReadContract({
@@ -97,15 +97,15 @@ export default function AdminPage() {
           <div className="mt-6 space-y-6">
             <div className="space-y-2">
               <div className="flex justify-between items-end">
-                <span className="text-[10px] text-muted-foreground uppercase font-bold">Accumulated USDm</span>
-                <span className="text-xl font-mono text-primary">{usdmFees ? formatUnits(usdmFees as bigint, 18) : "0.00"}</span>
+                <span className="text-[10px] text-muted-foreground uppercase font-bold">Accumulated USDT</span>
+                <span className="text-xl font-mono text-primary">{usdtFees ? formatUnits(usdtFees as bigint, 6) : "0.00"}</span>
               </div>
               <Button 
-                onClick={() => handleWithdrawFees(USDM_ADDRESS)}
+                onClick={() => handleWithdrawFees(USDT_ADDRESS)}
                 className="w-full h-8 text-[10px] uppercase font-bold tracking-widest"
                 variant="outline"
               >
-                Withdraw_USDm_Fees
+                Withdraw_USDT_Fees
               </Button>
             </div>
 

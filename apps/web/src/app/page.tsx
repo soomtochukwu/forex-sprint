@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
-import { Terminal, Activity, Database, Crosshair, Trophy } from "lucide-react";
+import { Terminal, Activity, Database, Crosshair, Trophy, ArrowDownToLine } from "lucide-react";
 import { useAccount, useReadContract, useWriteContract, useWatchContractEvent } from "wagmi";
 import { formatUnits, parseUnits } from "viem";
-import { VAULT_ADDRESS, USDM_ADDRESS, NATIVE_CELO } from "@/lib/constants";
+import { VAULT_ADDRESS, USDT_ADDRESS, NATIVE_CELO } from "@/lib/constants";
 import { VAULT_ABI } from "@/lib/abis";
 import { BotTrack } from "@/components/bot-track";
 import { BotCreationModal } from "@/components/bot-creation-modal";
@@ -13,14 +13,14 @@ export default function Home() {
   const { address } = useAccount();
   const { writeContract } = useWriteContract();
 
-  const [activeAsset, setActiveAsset] = useState<string>(USDM_ADDRESS);
+  const [activeAsset, setActiveAsset] = useState<string>(USDT_ADDRESS);
 
   // 1. Read User Balances
-  const { data: usdmBalance, refetch: refetchUsdm } = useReadContract({
+  const { data: usdtBalance, refetch: refetchUsdt } = useReadContract({
     address: VAULT_ADDRESS,
     abi: VAULT_ABI,
     functionName: "balances",
-    args: [address!, USDM_ADDRESS],
+    args: [address!, USDT_ADDRESS],
     query: { enabled: !!address }
   });
 
@@ -65,10 +65,11 @@ export default function Home() {
       const myLog = logs.find(l => (l as any).args.user === address);
       if (myLog) {
         const token = (myLog as any).args.token;
-        const profit = formatUnits((myLog as any).args.profit, 18);
-        const symbol = token === NATIVE_CELO ? "CELO" : "USDm";
+        const decimals = token === NATIVE_CELO ? 18 : 6;
+        const profit = formatUnits((myLog as any).args.profit, decimals);
+        const symbol = token === NATIVE_CELO ? "CELO" : "USDT";
         setLogs(prev => [...prev, `[EXEC] ${symbol} PROFIT REALIZED: +${profit} ${symbol}`]);
-        refetchUsdm();
+        refetchUsdt();
         refetchCelo();
         refetchMeta();
       }
@@ -76,7 +77,7 @@ export default function Home() {
   });
 
   const handleDeploy = (name: string, avatarId: number, capital: string, token: string) => {
-    const symbol = token === NATIVE_CELO ? "CELO" : "USDm";
+    const symbol = token === NATIVE_CELO ? "CELO" : "USDT";
     setLogs((prev) => [
       ...prev,
       `[EXEC] Deploying ${symbol} Agent Bot "${name}"...`,
@@ -94,6 +95,9 @@ export default function Home() {
       });
     } else {
       // Note: In real app, need to check allowance first
+      // Assuming frontend handles ERC20 approval separately or user does it,
+      // here we just call configureBot for demo.
+      // Ideally, the user deposits via `deposit` first, then configures.
       writeContract({
         address: VAULT_ADDRESS,
         abi: VAULT_ABI,
@@ -103,10 +107,29 @@ export default function Home() {
     }
   };
 
+  const handleWithdraw = () => {
+    const symbol = activeAsset === NATIVE_CELO ? "CELO" : "USDT";
+    const balance = activeAsset === NATIVE_CELO ? celoBalance : usdtBalance;
+    if (!balance || (balance as bigint) === 0n) return;
+    
+    setLogs((prev) => [
+      ...prev,
+      `[EXEC] Withdrawing ${symbol} balance...`
+    ]);
+
+    writeContract({
+        address: VAULT_ADDRESS,
+        abi: VAULT_ABI,
+        functionName: "withdraw",
+        args: [activeAsset as `0x${string}`, balance as bigint]
+    });
+  };
+
   const isActive = botConfig ? (botConfig as any)[1] : false;
-  const currentProfit = botMetadata ? formatUnits((botMetadata as any)[3], 18) : "0.00";
+  const activeDecimals = activeAsset === NATIVE_CELO ? 18 : 6;
+  const currentProfit = botMetadata ? formatUnits((botMetadata as any)[3], activeDecimals) : "0.00";
   const totalTrades = botMetadata ? (botMetadata as any)[2].toString() : "0";
-  const activeSymbol = activeAsset === NATIVE_CELO ? "CELO" : "USDm";
+  const activeSymbol = activeAsset === NATIVE_CELO ? "CELO" : "USDT";
 
   // Mock track data based on real bot
   const activeBots = botMetadata && isActive ? [
@@ -117,6 +140,7 @@ export default function Home() {
       profit: currentProfit,
       isActive: true,
       progress: 65,
+      symbol: activeSymbol
     }
   ] : [];
 
@@ -135,9 +159,9 @@ export default function Home() {
         </div>
         <div className="flex gap-4 text-right">
           <div>
-            <div className="text-[10px] text-muted-foreground uppercase tracking-widest">USDm Balance</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-widest">USDT Balance</div>
             <div className="text-sm font-bold font-mono text-primary">
-              {usdmBalance ? formatUnits(usdmBalance as bigint, 18) : "0.00"}
+              {usdtBalance ? formatUnits(usdtBalance as bigint, 6) : "0.00"}
             </div>
           </div>
           <div className="border-l border-border pl-4">
@@ -155,10 +179,10 @@ export default function Home() {
         <div className="lg:col-span-2 flex flex-col gap-6">
           <div className="flex gap-2">
             <button 
-              onClick={() => setActiveAsset(USDM_ADDRESS)}
-              className={`px-4 py-1 text-[10px] uppercase font-bold border transition-colors ${activeAsset === USDM_ADDRESS ? "bg-primary text-black border-primary" : "text-muted-foreground border-border hover:border-primary/50"}`}
+              onClick={() => setActiveAsset(USDT_ADDRESS)}
+              className={`px-4 py-1 text-[10px] uppercase font-bold border transition-colors ${activeAsset === USDT_ADDRESS ? "bg-primary text-black border-primary" : "text-muted-foreground border-border hover:border-primary/50"}`}
             >
-              USDm_View
+              USDT_View
             </button>
             <button 
               onClick={() => setActiveAsset(NATIVE_CELO)}
@@ -213,10 +237,20 @@ export default function Home() {
                   <span className="text-sm font-bold font-mono">
                     {activeAsset === NATIVE_CELO 
                       ? (celoBalance ? formatUnits(celoBalance as bigint, 18) : "0.00")
-                      : (usdmBalance ? formatUnits(usdmBalance as bigint, 18) : "0.00")
+                      : (usdtBalance ? formatUnits(usdtBalance as bigint, 6) : "0.00")
                     } {activeSymbol}
                   </span>
                 </div>
+              </div>
+
+              <div className="pt-2">
+                <button 
+                  onClick={handleWithdraw}
+                  className="w-full border border-destructive bg-destructive/10 hover:bg-destructive/20 text-destructive py-2 flex items-center justify-center gap-2 transition-colors uppercase text-[10px] font-bold tracking-widest"
+                >
+                  <ArrowDownToLine className="h-3 w-3" />
+                  Withdraw_Funds
+                </button>
               </div>
             </div>
           </div>

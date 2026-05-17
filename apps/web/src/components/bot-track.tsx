@@ -10,6 +10,7 @@ interface Bot {
   profit: string;
   isActive: boolean;
   progress: number; // 0 to 100
+  symbol: string;
 }
 
 const AVATARS = [
@@ -42,7 +43,7 @@ export function BotTrack({ bots }: { bots: Bot[] }) {
                     <span className={`w-2 h-2 rounded-full ${bot.isActive ? "bg-primary animate-pulse" : "bg-muted"}`} />
                     {bot.name}
                   </span>
-                  <span className="text-xs font-mono text-primary">+{bot.profit} USDm</span>
+                  <span className="text-xs font-mono text-primary">+{bot.profit} {bot.symbol}</span>
                 </div>
                 
                 <div className="h-4 w-full bg-border/20 rounded-full relative overflow-hidden">

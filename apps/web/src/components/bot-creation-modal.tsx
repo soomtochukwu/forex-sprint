@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Rocket, Zap, Shield, Play, Coins } from "lucide-react";
-import { USDM_ADDRESS, NATIVE_CELO } from "@/lib/constants";
+import { USDT_ADDRESS, NATIVE_CELO } from "@/lib/constants";
 
 const AVATARS = [
   { icon: Rocket, label: "Speedy" },
@@ -14,7 +14,7 @@ const AVATARS = [
 ];
 
 const TOKENS = [
-  { symbol: "USDm", address: USDM_ADDRESS },
+  { symbol: "USDT", address: USDT_ADDRESS },
   { symbol: "CELO", address: NATIVE_CELO },
 ];
 
@@ -85,7 +85,7 @@ export function BotCreationModal({ onDeploy }: { onDeploy: (name: string, avatar
             </div>
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="capital" className="text-xs uppercase text-muted-foreground">Allocated Capital (USDm)</Label>
+            <Label htmlFor="capital" className="text-xs uppercase text-muted-foreground">Allocated Capital</Label>
             <div className="flex items-center border border-border bg-input p-2">
               <span className="text-primary mr-2 font-mono">$</span>
               <input

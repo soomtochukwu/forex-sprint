@@ -67,19 +67,32 @@ async function main() {
 
   console.log(`> CONNECTED AS: ${account.address}`);
   
-  // For MVP, we'll monitor a specific set of users or a registry
-  const ACTIVE_USERS: `0x${string}`[] = []; 
-
   console.log("> COMMENCING SCAN LOOP...");
 
   const runScan = async () => {
     console.log("[TICK] Starting DEX scan...");
     try {
-      const STABLE_TRADE_SIZE = parseUnits("100", 18);
+      // Get all configured bots from the blockchain
+      const activeUsersSet = new Set<`0x${string}`>();
+      try {
+        const logs = await publicClient.getLogs({
+          address: VAULT_PROXY_ADDRESS,
+          event: parseAbi([
+            "event BotConfigured(address indexed user, address indexed token, uint256 minProfitBps, bool isActive, string name, uint8 avatarId)"
+          ])[0],
+          fromBlock: "earliest",
+        });
+        logs.forEach(l => activeUsersSet.add((l as any).args.user));
+      } catch (err) {
+        console.error("Failed to fetch logs:", err);
+      }
+      const ACTIVE_USERS = Array.from(activeUsersSet);
+
+      const STABLE_TRADE_SIZE = parseUnits("100", 6); // USDT has 6 decimals
       const CELO_TRADE_SIZE = parseUnits("10", 18);
 
-      // --- SCAN 1: USDm -> USDC (Uni -> Ube) ---
-      console.log("   -> Scanning USDm/USDC...");
+      // --- SCAN 1: USDT -> USDC (Uni -> Ube) ---
+      console.log("   -> Scanning USDT/USDC...");
       let usdmToUsdcUni = 0n;
       let selectedStableFee = 0;
       for (const fee of [100, 500, 3000]) {
@@ -88,7 +101,7 @@ async function main() {
             address: UNISWAP_V3_QUOTER,
             abi: QUOTER_ABI,
             functionName: "quoteExactInputSingle",
-            args: [USDM_ADDRESS, USDC_ADDRESS, fee, STABLE_TRADE_SIZE, 0n]
+            args: [USDT_ADDRESS, USDC_ADDRESS, fee, STABLE_TRADE_SIZE, 0n]
           }) as bigint;
           if (usdmToUsdcUni > 0n) {
             selectedStableFee = fee;
@@ -102,15 +115,77 @@ async function main() {
           address: UBESWAP_ROUTER,
           abi: UBE_ROUTER_ABI,
           functionName: "getAmountsOut",
-          args: [usdmToUsdcUni, [USDC_ADDRESS, USDM_ADDRESS]]
+          args: [usdmToUsdcUni, [USDC_ADDRESS, USDT_ADDRESS]]
         }) as bigint[];
         
         const stableProfit = usdcToUsdmUbe[1] - STABLE_TRADE_SIZE;
-        console.log(`[SCAN] USDm -> USDC: Profit: ${formatUnits(stableProfit, 18)} USDm (Fee: ${selectedStableFee})`);
+        console.log(`[SCAN] USDT -> USDC: Profit: ${formatUnits(stableProfit, 6)} USDT (Fee: ${selectedStableFee})`);
+        
+        if (stableProfit > 0n) {
+          for (const user of ACTIVE_USERS) {
+            const [minProfitBps, isActive] = await publicClient.readContract({
+              address: VAULT_PROXY_ADDRESS,
+              abi: VAULT_ABI,
+              functionName: "botConfigs",
+              args: [user, USDT_ADDRESS]
+            }) as [bigint, boolean];
+
+            if (isActive) {
+               const minProfit = (STABLE_TRADE_SIZE * minProfitBps) / 10000n;
+               if (stableProfit >= minProfit) {
+                 console.log(`[EXEC] Attempting USDT stable arbitrage for user ${user}...`);
+                 const swapUni = encodeFunctionData({
+                    abi: UNI_ROUTER_ABI,
+                    functionName: "exactInputSingle",
+                    args: [{
+                      tokenIn: USDT_ADDRESS,
+                      tokenOut: USDC_ADDRESS,
+                      fee: selectedStableFee,
+                      recipient: EXECUTOR_ADDRESS,
+                      deadline: BigInt(Math.floor(Date.now() / 1000) + 60),
+                      amountIn: STABLE_TRADE_SIZE,
+                      amountOutMinimum: usdmToUsdcUni, // MEV Protection
+                      sqrtPriceLimitX96: 0n
+                    }]
+                  });
+
+                  const swapUbe = encodeFunctionData({
+                    abi: UBE_ROUTER_ABI,
+                    functionName: "swapExactTokensForTokens",
+                    args: [
+                      usdmToUsdcUni,
+                      STABLE_TRADE_SIZE + minProfit, // MEV Protection (Total expected out)
+                      [USDC_ADDRESS, USDT_ADDRESS],
+                      EXECUTOR_ADDRESS,
+                      BigInt(Math.floor(Date.now() / 1000) + 60)
+                    ]
+                  });
+
+                  const executorPayload = encodeFunctionData({
+                    abi: EXECUTOR_ABI,
+                    functionName: "execute",
+                    args: [
+                      [UNISWAP_V3_ROUTER, UBESWAP_ROUTER],
+                      [swapUni, swapUbe],
+                      USDT_ADDRESS
+                    ]
+                  });
+
+                  const hash = await walletClient.writeContract({
+                    address: VAULT_PROXY_ADDRESS,
+                    abi: VAULT_ABI,
+                    functionName: "executeArbitrage",
+                    args: [user, USDT_ADDRESS, STABLE_TRADE_SIZE, EXECUTOR_ADDRESS, executorPayload]
+                  });
+                  console.log(`[SUCCESS] Tx Hash: ${hash}`);
+               }
+            }
+          }
+        }
       }
 
-      // --- SCAN 2: CELO -> USDm (Uni -> Ube) ---
-      console.log("   -> Scanning CELO/USDm...");
+      // --- SCAN 2: CELO -> USDT (Uni -> Ube) ---
+      console.log("   -> Scanning CELO/USDT...");
       let celoToUsdmUni = 0n;
       let selectedCeloFee = 0;
       for (const fee of [500, 3000, 10000]) {
@@ -119,7 +194,7 @@ async function main() {
             address: UNISWAP_V3_QUOTER,
             abi: QUOTER_ABI,
             functionName: "quoteExactInputSingle",
-            args: [CELO_TOKEN_ADDRESS, USDM_ADDRESS, fee, CELO_TRADE_SIZE, 0n]
+            args: [CELO_TOKEN_ADDRESS, USDT_ADDRESS, fee, CELO_TRADE_SIZE, 0n]
           }) as bigint;
           if (celoToUsdmUni > 0n) {
             selectedCeloFee = fee;
@@ -133,11 +208,11 @@ async function main() {
           address: UBESWAP_ROUTER,
           abi: UBE_ROUTER_ABI,
           functionName: "getAmountsOut",
-          args: [celoToUsdmUni, [USDM_ADDRESS, CELO_TOKEN_ADDRESS]]
+          args: [celoToUsdmUni, [USDT_ADDRESS, CELO_TOKEN_ADDRESS]]
         }) as bigint[];
 
         const celoProfit = usdmToCeloUbeArr[1] - CELO_TRADE_SIZE;
-        console.log(`[SCAN] CELO -> USDm: Profit: ${formatUnits(celoProfit, 18)} CELO (Fee: ${selectedCeloFee})`);
+        console.log(`[SCAN] CELO -> USDT: Profit: ${formatUnits(celoProfit, 18)} CELO (Fee: ${selectedCeloFee})`);
 
         if (celoProfit > 0n) {
           for (const user of ACTIVE_USERS) {
@@ -149,51 +224,54 @@ async function main() {
             }) as [bigint, boolean];
 
             if (isActive) {
-               console.log(`[EXEC] Attempting for user ${user}...`);
-               const swapUni = encodeFunctionData({
-                  abi: UNI_ROUTER_ABI,
-                  functionName: "exactInputSingle",
-                  args: [{
-                    tokenIn: CELO_TOKEN_ADDRESS,
-                    tokenOut: USDM_ADDRESS,
-                    fee: selectedCeloFee,
-                    recipient: EXECUTOR_ADDRESS,
-                    deadline: BigInt(Math.floor(Date.now() / 1000) + 60),
-                    amountIn: CELO_TRADE_SIZE,
-                    amountOutMinimum: 0n,
-                    sqrtPriceLimitX96: 0n
-                  }]
-                });
+               const minProfit = (CELO_TRADE_SIZE * minProfitBps) / 10000n;
+               if (celoProfit >= minProfit) {
+                 console.log(`[EXEC] Attempting CELO arbitrage for user ${user}...`);
+                 const swapUni = encodeFunctionData({
+                    abi: UNI_ROUTER_ABI,
+                    functionName: "exactInputSingle",
+                    args: [{
+                      tokenIn: CELO_TOKEN_ADDRESS,
+                      tokenOut: USDT_ADDRESS,
+                      fee: selectedCeloFee,
+                      recipient: EXECUTOR_ADDRESS,
+                      deadline: BigInt(Math.floor(Date.now() / 1000) + 60),
+                      amountIn: CELO_TRADE_SIZE,
+                      amountOutMinimum: celoToUsdmUni, // MEV Protection
+                      sqrtPriceLimitX96: 0n
+                    }]
+                  });
 
-                const swapUbe = encodeFunctionData({
-                  abi: UBE_ROUTER_ABI,
-                  functionName: "swapExactTokensForTokens",
-                  args: [
-                    celoToUsdmUni,
-                    0n,
-                    [USDM_ADDRESS, CELO_TOKEN_ADDRESS],
-                    EXECUTOR_ADDRESS,
-                    BigInt(Math.floor(Date.now() / 1000) + 60)
-                  ]
-                });
+                  const swapUbe = encodeFunctionData({
+                    abi: UBE_ROUTER_ABI,
+                    functionName: "swapExactTokensForTokens",
+                    args: [
+                      celoToUsdmUni,
+                      CELO_TRADE_SIZE + minProfit, // MEV Protection
+                      [USDT_ADDRESS, CELO_TOKEN_ADDRESS],
+                      EXECUTOR_ADDRESS,
+                      BigInt(Math.floor(Date.now() / 1000) + 60)
+                    ]
+                  });
 
-                const executorPayload = encodeFunctionData({
-                  abi: EXECUTOR_ABI,
-                  functionName: "execute",
-                  args: [
-                    [UNISWAP_V3_ROUTER, UBESWAP_ROUTER],
-                    [swapUni, swapUbe],
-                    NATIVE_CELO
-                  ]
-                });
+                  const executorPayload = encodeFunctionData({
+                    abi: EXECUTOR_ABI,
+                    functionName: "execute",
+                    args: [
+                      [UNISWAP_V3_ROUTER, UBESWAP_ROUTER],
+                      [swapUni, swapUbe],
+                      NATIVE_CELO
+                    ]
+                  });
 
-                const hash = await walletClient.writeContract({
-                  address: VAULT_PROXY_ADDRESS,
-                  abi: VAULT_ABI,
-                  functionName: "executeArbitrage",
-                  args: [user, NATIVE_CELO, CELO_TRADE_SIZE, EXECUTOR_ADDRESS, executorPayload]
-                });
-                console.log(`[SUCCESS] Tx Hash: ${hash}`);
+                  const hash = await walletClient.writeContract({
+                    address: VAULT_PROXY_ADDRESS,
+                    abi: VAULT_ABI,
+                    functionName: "executeArbitrage",
+                    args: [user, NATIVE_CELO, CELO_TRADE_SIZE, EXECUTOR_ADDRESS, executorPayload]
+                  });
+                  console.log(`[SUCCESS] Tx Hash: ${hash}`);
+               }
             }
           }
         }
@@ -207,5 +285,6 @@ async function main() {
 
   runScan();
 }
+
 
 main().catch(console.error);
