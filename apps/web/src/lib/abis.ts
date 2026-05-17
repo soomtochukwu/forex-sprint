@@ -1,8 +1,16 @@
 import { parseAbi } from "viem";
 
+export const ERC20_ABI = parseAbi([
+  "function approve(address spender, uint256 amount) external returns (bool)",
+  "function allowance(address owner, address spender) external view returns (uint256)",
+  "function balanceOf(address account) external view returns (uint256)"
+]);
+
 export const VAULT_ABI = parseAbi([
   "function deposit(address token, uint256 amount) external",
   "function depositCELO() external payable",
+  "function depositAndConfigure(address token, uint256 amount, uint256 minProfitBps, bool isActive, string name, uint8 avatarId) external",
+  "function depositCELOAndConfigure(uint256 minProfitBps, bool isActive, string name, uint8 avatarId) external payable",
   "function withdraw(address token, uint256 amount) external",
   "function configureBot(address token, uint256 minProfitBps, bool isActive, string name, uint8 avatarId) external",
   "function balances(address user, address token) external view returns (uint256)",

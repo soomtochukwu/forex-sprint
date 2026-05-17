@@ -5,13 +5,13 @@ import { Terminal, Activity, Database, Crosshair, Trophy, ArrowDownToLine } from
 import { useAccount, useReadContract, useWriteContract, useWatchContractEvent } from "wagmi";
 import { formatUnits, parseUnits } from "viem";
 import { VAULT_ADDRESS, USDT_ADDRESS, NATIVE_CELO } from "@/lib/constants";
-import { VAULT_ABI } from "@/lib/abis";
+import { VAULT_ABI, ERC20_ABI } from "@/lib/abis";
 import { BotTrack } from "@/components/bot-track";
 import { BotCreationModal } from "@/components/bot-creation-modal";
 
 export default function Home() {
   const { address } = useAccount();
-  const { writeContract } = useWriteContract();
+  const { writeContractAsync } = useWriteContract();
 
   const [activeAsset, setActiveAsset] = useState<string>(USDT_ADDRESS);
 
@@ -49,6 +49,15 @@ export default function Home() {
     query: { enabled: !!address }
   });
 
+  // Read Allowance
+  const { data: usdtAllowance, refetch: refetchAllowance } = useReadContract({
+    address: USDT_ADDRESS,
+    abi: ERC20_ABI,
+    functionName: "allowance",
+    args: [address!, VAULT_ADDRESS],
+    query: { enabled: !!address }
+  });
+
   const [logs, setLogs] = useState<string[]>([
     "[SYSTEM] Initializing Forex Sprint engine...",
     "[SYSTEM] Connected to Celo Mainnet.",
@@ -76,53 +85,88 @@ export default function Home() {
     },
   });
 
-  const handleDeploy = (name: string, avatarId: number, capital: string, token: string) => {
-    const symbol = token === NATIVE_CELO ? "CELO" : "USDT";
-    setLogs((prev) => [
-      ...prev,
-      `[EXEC] Deploying ${symbol} Agent Bot "${name}"...`,
-      `[INFO] Capital: ${capital} ${symbol}`,
-    ]);
+  const handleDeploy = async (name: string, avatarId: number, capital: string, token: string) => {
+    try {
+      const symbol = token === NATIVE_CELO ? "CELO" : "USDT";
+      const decimals = token === NATIVE_CELO ? 18 : 6;
+      const amount = parseUnits(capital, decimals);
 
-    setActiveAsset(token);
+      setLogs((prev) => [
+        ...prev,
+        `[EXEC] Deploying ${symbol} Agent Bot "${name}"...`,
+        `[INFO] Capital: ${capital} ${symbol}`,
+      ]);
 
-    if (token === NATIVE_CELO) {
-      writeContract({
-        address: VAULT_ADDRESS,
-        abi: VAULT_ABI,
-        functionName: "depositCELO",
-        value: parseUnits(capital, 18),
-      });
-    } else {
-      // Note: In real app, need to check allowance first
-      // Assuming frontend handles ERC20 approval separately or user does it,
-      // here we just call configureBot for demo.
-      // Ideally, the user deposits via `deposit` first, then configures.
-      writeContract({
-        address: VAULT_ADDRESS,
-        abi: VAULT_ABI,
-        functionName: "configureBot",
-        args: [token as `0x${string}`, 1n, true, name, avatarId],
-      });
+      setActiveAsset(token);
+
+      if (token === NATIVE_CELO) {
+        await writeContractAsync({
+          address: VAULT_ADDRESS,
+          abi: VAULT_ABI,
+          functionName: "depositCELOAndConfigure",
+          args: [1n, true, name, avatarId],
+          value: amount,
+        });
+        setLogs(prev => [...prev, `[SUCCESS] CELO Bot Deployed!`]);
+      } else {
+        // Handle ERC20 Approval
+        const currentAllowance = (usdtAllowance as bigint) || 0n;
+        if (currentAllowance < amount) {
+          setLogs(prev => [...prev, `[INFO] Requesting USDT Approval...`]);
+          await writeContractAsync({
+            address: USDT_ADDRESS,
+            abi: ERC20_ABI,
+            functionName: "approve",
+            args: [VAULT_ADDRESS, amount],
+          });
+          setLogs(prev => [...prev, `[SUCCESS] USDT Approved. Proceeding to deposit...`]);
+          // Refetch allowance just in case
+          refetchAllowance();
+          // Note: The UI might need to wait for tx confirmation here before the next call
+          // but we will attempt the deposit immediately assuming fast block times or user handles it.
+        }
+
+        await writeContractAsync({
+          address: VAULT_ADDRESS,
+          abi: VAULT_ABI,
+          functionName: "depositAndConfigure",
+          args: [token as `0x${string}`, amount, 1n, true, name, avatarId],
+        });
+        setLogs(prev => [...prev, `[SUCCESS] USDT Bot Deployed!`]);
+      }
+      refetchUsdt();
+      refetchCelo();
+      refetchMeta();
+    } catch (error: any) {
+      console.error(error);
+      setLogs(prev => [...prev, `[ERROR] Deployment failed: ${error.shortMessage || error.message}`]);
     }
   };
 
-  const handleWithdraw = () => {
-    const symbol = activeAsset === NATIVE_CELO ? "CELO" : "USDT";
-    const balance = activeAsset === NATIVE_CELO ? celoBalance : usdtBalance;
-    if (!balance || (balance as bigint) === 0n) return;
-    
-    setLogs((prev) => [
-      ...prev,
-      `[EXEC] Withdrawing ${symbol} balance...`
-    ]);
+  const handleWithdraw = async () => {
+    try {
+      const symbol = activeAsset === NATIVE_CELO ? "CELO" : "USDT";
+      const balance = activeAsset === NATIVE_CELO ? celoBalance : usdtBalance;
+      if (!balance || (balance as bigint) === 0n) return;
+      
+      setLogs((prev) => [
+        ...prev,
+        `[EXEC] Withdrawing ${symbol} balance...`
+      ]);
 
-    writeContract({
-        address: VAULT_ADDRESS,
-        abi: VAULT_ABI,
-        functionName: "withdraw",
-        args: [activeAsset as `0x${string}`, balance as bigint]
-    });
+      await writeContractAsync({
+          address: VAULT_ADDRESS,
+          abi: VAULT_ABI,
+          functionName: "withdraw",
+          args: [activeAsset as `0x${string}`, balance as bigint]
+      });
+      setLogs(prev => [...prev, `[SUCCESS] ${symbol} Withdrawn!`]);
+      refetchUsdt();
+      refetchCelo();
+      refetchMeta();
+    } catch (error: any) {
+      setLogs(prev => [...prev, `[ERROR] Withdrawal failed: ${error.shortMessage || error.message}`]);
+    }
   };
 
   const isActive = botConfig ? (botConfig as any)[1] : false;

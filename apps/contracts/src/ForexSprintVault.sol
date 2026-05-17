@@ -102,7 +102,25 @@ contract ForexSprintVault is Initializable, OwnableUpgradeable, UUPSUpgradeable 
         emit Withdrawn(msg.sender, token, amount);
     }
 
-    function configureBot(address token, uint256 minProfitBps, bool isActive, string calldata name, uint8 avatarId) external {
+    function depositAndConfigure(address token, uint256 amount, uint256 minProfitBps, bool isActive, string calldata name, uint8 avatarId) external {
+        require(token != NATIVE_CELO, "Use depositCELOAndConfigure");
+        require(amount > 0, "Amount must be > 0");
+        require(IERC20(token).transferFrom(msg.sender, address(this), amount), "Transfer failed");
+        balances[msg.sender][token] += amount;
+        emit Deposited(msg.sender, token, amount);
+
+        _configureBot(token, minProfitBps, isActive, name, avatarId);
+    }
+
+    function depositCELOAndConfigure(uint256 minProfitBps, bool isActive, string calldata name, uint8 avatarId) external payable {
+        require(msg.value > 0, "Amount must be > 0");
+        balances[msg.sender][NATIVE_CELO] += msg.value;
+        emit Deposited(msg.sender, NATIVE_CELO, msg.value);
+
+        _configureBot(NATIVE_CELO, minProfitBps, isActive, name, avatarId);
+    }
+
+    function _configureBot(address token, uint256 minProfitBps, bool isActive, string calldata name, uint8 avatarId) internal {
         require(minProfitBps <= 10000, "Invalid bps");
         botConfigs[msg.sender][token] = BotConfig({
             minProfitBps: minProfitBps,
@@ -115,6 +133,11 @@ contract ForexSprintVault is Initializable, OwnableUpgradeable, UUPSUpgradeable 
 
         emit BotConfigured(msg.sender, token, minProfitBps, isActive, name, avatarId);
     }
+
+    function configureBot(address token, uint256 minProfitBps, bool isActive, string calldata name, uint8 avatarId) external {
+        _configureBot(token, minProfitBps, isActive, name, avatarId);
+    }
+
 
     function executeArbitrage(
         address user,
